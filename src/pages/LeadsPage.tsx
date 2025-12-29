@@ -43,14 +43,14 @@ export default function LeadsPage() {
 
   async function createLead(e: React.FormEvent) {
     e.preventDefault();
-    const { error } = await supabase.from("leads").insert({
+    const { error } = await supabase.from("leads").insert([{
       title: formData.title,
       description: formData.description,
       value: parseFloat(formData.value) || 0,
-      status: formData.status,
+      status: formData.status as "new" | "contacted" | "qualified" | "proposal" | "negotiation" | "won" | "lost",
       source: formData.source,
       created_by: user?.id,
-    });
+    }]);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
