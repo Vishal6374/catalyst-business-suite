@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, DollarSign } from "lucide-react";
+import { Plus, DollarSign, MoreHorizontal, Pencil, Trash2, CheckCircle, XCircle, MoveHorizontal } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import type { Database } from "@/integrations/supabase/types";
 
 const stages = [
   { value: "prospecting", label: "Prospecting", color: "bg-muted text-muted-foreground" },
@@ -24,9 +26,9 @@ const stages = [
 export default function DealsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [deals, setDeals] = useState<any[]>([]);
-  const [companies, setCompanies] = useState<any[]>([]);
-  const [contacts, setContacts] = useState<any[]>([]);
+  const [deals, setDeals] = useState<(Database["public"]["Tables"]["deals"]["Row"] & { companies?: { name: string }, contacts?: { first_name: string, last_name: string } })[]>([]);
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  const [contacts, setContacts] = useState<{ id: string; first_name: string; last_name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
@@ -93,6 +95,25 @@ export default function DealsPage() {
     deals: deals.filter((d) => d.stage === stage.value),
     total: deals.filter((d) => d.stage === stage.value).reduce((sum, d) => sum + Number(d.value || 0), 0),
   }));
+
+  async function updateDealStage(deal: Database["public"]["Tables"]["deals"]["Row"], stage: string) {
+    const { error } = await supabase.from("deals").update({ stage }).eq("id", deal.id);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
+    fetchDeals();
+  }
+
+  async function deleteDeal(id: string) {
+    if (!confirm("Delete this deal?")) return;
+    const { error } = await supabase.from("deals").delete().eq("id", id);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
+    fetchDeals();
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -168,9 +189,38 @@ export default function DealsPage() {
                   stage.deals.map((deal) => (
                     <Card key={deal.id} className="bg-muted/50">
                       <CardContent className="p-3">
-                        <h4 className="font-medium text-sm truncate">{deal.title}</h4>
-                        <p className="text-xs text-muted-foreground">${Number(deal.value || 0).toLocaleString()}</p>
-                        {deal.companies?.name && <p className="text-xs text-muted-foreground mt-1">{deal.companies.name}</p>}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h4 className="font-medium text-sm truncate">{deal.title}</h4>
+                            <p className="text-xs text-muted-foreground">${Number(deal.value || 0).toLocaleString()}</p>
+                            {deal.companies?.name && <p className="text-xs text-muted-foreground mt-1">{deal.companies.name}</p>}
+                          </div>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => updateDealStage(deal, "qualification")}>
+                                <MoveHorizontal className="mr-2 h-4 w-4" /> Move to Qualification
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateDealStage(deal, "proposal")}>
+                                <MoveHorizontal className="mr-2 h-4 w-4" /> Move to Proposal
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateDealStage(deal, "negotiation")}>
+                                <MoveHorizontal className="mr-2 h-4 w-4" /> Move to Negotiation
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateDealStage(deal, "closed_won")}>
+                                <CheckCircle className="mr-2 h-4 w-4" /> Mark Won
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateDealStage(deal, "closed_lost")}>
+                                <XCircle className="mr-2 h-4 w-4" /> Mark Lost
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => deleteDeal(deal.id)}>
+                                <Trash2 className="mr-2 h-4 w-4" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </CardContent>
                     </Card>
                   ))

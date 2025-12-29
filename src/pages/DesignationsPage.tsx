@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { Plus, Search, Trash2, Pencil } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -18,6 +18,7 @@ export default function DesignationsPage() {
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ title: "", description: "", department_id: "" });
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDesignations();
@@ -51,6 +52,26 @@ export default function DesignationsPage() {
       toast({ title: "Designation created successfully" });
       setDialogOpen(false);
       setFormData({ title: "", description: "", department_id: "" });
+      setEditingId(null);
+      fetchDesignations();
+    }
+  }
+
+  async function updateDesignation(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingId) return;
+    const { error } = await supabase.from("designations").update({
+      title: formData.title,
+      description: formData.description,
+      department_id: formData.department_id || null,
+    }).eq("id", editingId);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Designation updated successfully" });
+      setDialogOpen(false);
+      setFormData({ title: "", description: "", department_id: "" });
+      setEditingId(null);
       fetchDesignations();
     }
   }
@@ -76,13 +97,30 @@ export default function DesignationsPage() {
           <h1 className="page-title">Designations</h1>
           <p className="page-description">Manage job titles and positions</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) {
+              setEditingId(null);
+              setFormData({ title: "", description: "", department_id: "" });
+            }
+          }}
+        >
           <DialogTrigger asChild>
-            <Button><Plus className="mr-2 h-4 w-4" />Add Designation</Button>
+            <Button
+              onClick={() => {
+                setEditingId(null);
+                setFormData({ title: "", description: "", department_id: "" });
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Designation
+            </Button>
           </DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>Create Designation</DialogTitle></DialogHeader>
-            <form onSubmit={createDesignation} className="space-y-4">
+            <DialogHeader><DialogTitle>{editingId ? "Edit Designation" : "Create Designation"}</DialogTitle></DialogHeader>
+            <form onSubmit={editingId ? updateDesignation : createDesignation} className="space-y-4">
               <div><Label>Title</Label><Input value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} required /></div>
               <div>
                 <Label>Department</Label>
@@ -92,7 +130,7 @@ export default function DesignationsPage() {
                 </Select>
               </div>
               <div><Label>Description</Label><Textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} /></div>
-              <Button type="submit" className="w-full">Create Designation</Button>
+              <Button type="submit" className="w-full">{editingId ? "Update Designation" : "Create Designation"}</Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -120,9 +158,26 @@ export default function DesignationsPage() {
                     {desig.departments?.name && <p className="text-sm text-primary">{desig.departments.name}</p>}
                     {desig.description && <p className="text-sm text-muted-foreground mt-1">{desig.description}</p>}
                   </div>
-                  <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteDesignation(desig.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setEditingId(desig.id);
+                        setFormData({
+                          title: desig.title || "",
+                          description: desig.description || "",
+                          department_id: desig.department_id || "",
+                        });
+                        setDialogOpen(true);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteDesignation(desig.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>

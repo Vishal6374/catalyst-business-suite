@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Mail, Phone, Building } from "lucide-react";
+import { Plus, Search, Mail, Phone, Building, MoreHorizontal, Pencil, Trash2, Briefcase } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -11,15 +11,18 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import type { Database } from "@/integrations/supabase/types";
 
 export default function ContactsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [contacts, setContacts] = useState<any[]>([]);
-  const [companies, setCompanies] = useState<any[]>([]);
+  const [contacts, setContacts] = useState<(Database["public"]["Tables"]["contacts"]["Row"] & { companies?: { id: string; name: string } })[]>([]);
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingContact, setEditingContact] = useState<(Database["public"]["Tables"]["contacts"]["Row"] & { companies?: { id: string; name: string } }) | null>(null);
   const [formData, setFormData] = useState({
     first_name: "",
     last_name: "",
@@ -38,7 +41,7 @@ export default function ContactsPage() {
   async function fetchContacts() {
     const { data, error } = await supabase
       .from("contacts")
-      .select("*, companies(name)")
+      .select("*, companies(id, name)")
       .order("created_at", { ascending: false });
     if (!error) setContacts(data || []);
     setLoading(false);
@@ -51,24 +54,83 @@ export default function ContactsPage() {
 
   async function createContact(e: React.FormEvent) {
     e.preventDefault();
-    const { error } = await supabase.from("contacts").insert([{
-      first_name: formData.first_name,
-      last_name: formData.last_name,
-      email: formData.email,
-      phone: formData.phone,
-      position: formData.position,
-      company_id: formData.company_id || null,
-      notes: formData.notes,
+    if (editingContact) {
+      const { error } = await supabase.from("contacts").update({
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        email: formData.email,
+        phone: formData.phone,
+        position: formData.position,
+        company_id: formData.company_id || null,
+        notes: formData.notes,
+      }).eq("id", editingContact.id);
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Contact updated successfully" });
+    } else {
+      const { error } = await supabase.from("contacts").insert([{
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        email: formData.email,
+        phone: formData.phone,
+        position: formData.position,
+        company_id: formData.company_id || null,
+        notes: formData.notes,
+        created_by: user?.id,
+      }]);
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Contact created successfully" });
+    }
+    setDialogOpen(false);
+    setEditingContact(null);
+    setFormData({ first_name: "", last_name: "", email: "", phone: "", position: "", company_id: "", notes: "" });
+    fetchContacts();
+  }
+
+  function openEdit(contact: Database["public"]["Tables"]["contacts"]["Row"] & { companies?: { id: string; name: string } }) {
+    setEditingContact(contact);
+    setFormData({
+      first_name: contact.first_name || "",
+      last_name: contact.last_name || "",
+      email: contact.email || "",
+      phone: contact.phone || "",
+      position: contact.position || "",
+      company_id: contact.company_id || contact.companies?.id || "",
+      notes: contact.notes || "",
+    });
+    setDialogOpen(true);
+  }
+
+  async function deleteContact(id: string) {
+    if (!confirm("Delete this contact?")) return;
+    const { error } = await supabase.from("contacts").delete().eq("id", id);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+    toast({ title: "Contact deleted" });
+    fetchContacts();
+  }
+
+  async function createDealForContact(contact: Database["public"]["Tables"]["contacts"]["Row"] & { companies?: { id: string; name: string } }) {
+    const title = `${contact.first_name} ${contact.last_name}`.trim() || "New Deal";
+    const { error } = await supabase.from("deals").insert([{
+      title,
+      stage: "prospecting",
+      value: 0,
+      contact_id: contact.id,
+      company_id: contact.company_id || contact.companies?.id || null,
       created_by: user?.id,
     }]);
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Contact created successfully" });
-      setDialogOpen(false);
-      setFormData({ first_name: "", last_name: "", email: "", phone: "", position: "", company_id: "", notes: "" });
-      fetchContacts();
+      return;
     }
+    toast({ title: "Deal created for contact" });
   }
 
   const filteredContacts = contacts.filter((c) =>
@@ -158,8 +220,24 @@ export default function ContactsPage() {
                           <Phone className="h-3 w-3" />{contact.phone}
                         </div>
                       )}
-                    </div>
+                </div>
                   </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => openEdit(contact)}>
+                        <Pencil className="mr-2 h-4 w-4" /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => createDealForContact(contact)}>
+                        <Briefcase className="mr-2 h-4 w-4" /> Create Deal
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => deleteContact(contact.id)}>
+                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </CardContent>
             </Card>

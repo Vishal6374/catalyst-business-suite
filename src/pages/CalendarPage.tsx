@@ -4,14 +4,26 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/contexts/AuthContext";
 
 const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function CalendarPage() {
+  const { user } = useAuth();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [tasks, setTasks] = useState<any[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
+  const [dayDialogOpen, setDayDialogOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [newTask, setNewTask] = useState({ title: "", description: "", priority: "medium" });
+  const [rescheduleTaskId, setRescheduleTaskId] = useState<string | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState<string>("");
 
   useEffect(() => {
     fetchData();
@@ -67,6 +79,42 @@ export default function CalendarPage() {
     return day === now.getDate() && currentDate.getMonth() === now.getMonth() && currentDate.getFullYear() === now.getFullYear();
   };
 
+  const openDayDialog = (day: number) => {
+    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    setSelectedDate(dateStr);
+    setNewTask({ title: "", description: "", priority: "medium" });
+    setRescheduleTaskId(null);
+    setRescheduleDate(dateStr);
+    setDayDialogOpen(true);
+  };
+
+  async function createTaskForDay(e: React.FormEvent) {
+    e.preventDefault();
+    const { error } = await supabase.from("tasks").insert([{
+      title: newTask.title,
+      description: newTask.description || null,
+      priority: newTask.priority as "low" | "medium" | "high" | "urgent",
+      status: "todo",
+      due_date: selectedDate,
+      created_by: user?.id,
+    }]);
+    if (!error) {
+      setNewTask({ title: "", description: "", priority: "medium" });
+      setDayDialogOpen(false);
+      fetchData();
+    }
+  }
+
+  async function rescheduleTask() {
+    if (!rescheduleTaskId || !rescheduleDate) return;
+    const { error } = await supabase.from("tasks").update({ due_date: rescheduleDate }).eq("id", rescheduleTaskId);
+    if (!error) {
+      setRescheduleTaskId(null);
+      setDayDialogOpen(false);
+      fetchData();
+    }
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
@@ -100,7 +148,8 @@ export default function CalendarPage() {
               return (
                 <div
                   key={index}
-                  className={`bg-background min-h-[100px] p-2 ${!day ? "bg-muted/30" : ""} ${isToday(day!) ? "ring-2 ring-primary ring-inset" : ""}`}
+                  className={`bg-background min-h-[100px] p-2 cursor-pointer ${!day ? "bg-muted/30" : ""} ${isToday(day!) ? "ring-2 ring-primary ring-inset" : ""}`}
+                  onClick={() => day && openDayDialog(day)}
                 >
                   {day && (
                     <>
@@ -139,6 +188,80 @@ export default function CalendarPage() {
           <span className="text-muted-foreground">Leave</span>
         </div>
       </div>
+
+      <Dialog
+        open={dayDialogOpen}
+        onOpenChange={(open) => {
+          setDayDialogOpen(open);
+          if (!open) {
+            setRescheduleTaskId(null);
+            setNewTask({ title: "", description: "", priority: "medium" });
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manage {selectedDate}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <h3 className="font-medium text-sm">Tasks</h3>
+              <div className="space-y-2 max-h-[200px] overflow-auto mt-2">
+                {tasks.filter((t) => t.due_date?.startsWith(selectedDate)).map((task) => (
+                  <div key={task.id} className="flex items-center gap-2">
+                    <span className="text-sm flex-1 truncate">{task.title}</span>
+                    <Input type="date" className="h-8 w-40" value={rescheduleTaskId === task.id ? rescheduleDate : selectedDate} onChange={(e) => { setRescheduleTaskId(task.id); setRescheduleDate(e.target.value); }} />
+                    <Button size="sm" variant="outline" onClick={rescheduleTask}>Reschedule</Button>
+                  </div>
+                ))}
+                {tasks.filter((t) => t.due_date?.startsWith(selectedDate)).length === 0 && (
+                  <p className="text-sm text-muted-foreground">No tasks on this day</p>
+                )}
+              </div>
+            </div>
+            <div>
+              <h3 className="font-medium text-sm">Create Task</h3>
+              <form onSubmit={createTaskForDay} className="space-y-2 mt-2">
+                <div>
+                  <Label>Title</Label>
+                  <Input value={newTask.title} onChange={(e) => setNewTask({ ...newTask, title: e.target.value })} required />
+                </div>
+                <div>
+                  <Label>Description</Label>
+                  <Textarea value={newTask.description} onChange={(e) => setNewTask({ ...newTask, description: e.target.value })} />
+                </div>
+                <div>
+                  <Label>Priority</Label>
+                  <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="urgent">Urgent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button type="submit" className="w-full">Create Task on {selectedDate}</Button>
+              </form>
+            </div>
+            <div>
+              <h3 className="font-medium text-sm">Leave</h3>
+              <div className="space-y-2 max-h-[160px] overflow-auto mt-2">
+                {leaveRequests.filter((l) => {
+                  const d = new Date(selectedDate);
+                  return d >= new Date(l.start_date) && d <= new Date(l.end_date);
+                }).map((leave) => (
+                  <div key={leave.id} className="flex items-center gap-2">
+                    <span className="text-sm flex-1 truncate">{leave.employees?.profiles?.full_name || "Leave"}</span>
+                    <Badge variant="secondary" className="text-xs">{leave.type}</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

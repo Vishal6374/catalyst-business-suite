@@ -3,13 +3,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Clock } from "lucide-react";
+import { Plus, Search, Clock, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import type { Database } from "@/integrations/supabase/types";
 
 const statusColors: Record<string, string> = {
   present: "bg-success/10 text-success",
@@ -20,11 +22,12 @@ const statusColors: Record<string, string> = {
 
 export default function AttendancePage() {
   const { toast } = useToast();
-  const [attendance, setAttendance] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
+  const [attendance, setAttendance] = useState<(Database["public"]["Tables"]["attendance"]["Row"] & { employees?: { employee_id: string; profiles?: { full_name: string | null } } })[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; employee_id: string; profiles?: { full_name: string | null } }[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Database["public"]["Tables"]["attendance"]["Row"] | null>(null);
   const [formData, setFormData] = useState({
     employee_id: "",
     date: new Date().toISOString().split("T")[0],
@@ -60,22 +63,39 @@ export default function AttendancePage() {
 
   async function createAttendance(e: React.FormEvent) {
     e.preventDefault();
-    const { error } = await supabase.from("attendance").insert([{
-      employee_id: formData.employee_id,
-      date: formData.date,
-      check_in: formData.check_in,
-      check_out: formData.check_out,
-      status: formData.status as "present" | "absent" | "late" | "half_day",
-      notes: formData.notes,
-    }]);
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+    if (editing) {
+      const { error } = await supabase.from("attendance").update({
+        employee_id: formData.employee_id,
+        date: formData.date,
+        check_in: formData.check_in,
+        check_out: formData.check_out,
+        status: formData.status as "present" | "absent" | "late" | "half_day",
+        notes: formData.notes,
+      }).eq("id", editing.id);
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Attendance updated successfully" });
     } else {
+      const { error } = await supabase.from("attendance").insert([{
+        employee_id: formData.employee_id,
+        date: formData.date,
+        check_in: formData.check_in,
+        check_out: formData.check_out,
+        status: formData.status as "present" | "absent" | "late" | "half_day",
+        notes: formData.notes,
+      }]);
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+        return;
+      }
       toast({ title: "Attendance recorded successfully" });
-      setDialogOpen(false);
-      setFormData({ employee_id: "", date: new Date().toISOString().split("T")[0], check_in: "09:00", check_out: "17:00", status: "present", notes: "" });
-      fetchAttendance();
     }
+    setDialogOpen(false);
+    setEditing(null);
+    setFormData({ employee_id: "", date: new Date().toISOString().split("T")[0], check_in: "09:00", check_out: "17:00", status: "present", notes: "" });
+    fetchAttendance();
   }
 
   const filteredAttendance = attendance.filter((a) =>
@@ -183,9 +203,9 @@ export default function AttendancePage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="text-center py-8">Loading...</td></tr>
+                <tr><td colSpan={7} className="text-center py-8">Loading...</td></tr>
               ) : filteredAttendance.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No attendance records found</td></tr>
+                <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">No attendance records found</td></tr>
               ) : (
                 filteredAttendance.map((a) => (
                   <tr key={a.id} className="hover:bg-muted/50">
@@ -195,6 +215,41 @@ export default function AttendancePage() {
                     <td>{a.check_out || "-"}</td>
                     <td><Badge className={statusColors[a.status]}>{a.status.replace("_", " ")}</Badge></td>
                     <td className="text-muted-foreground max-w-[200px] truncate">{a.notes || "-"}</td>
+                    <td className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => {
+                            setEditing(a);
+                            setFormData({
+                              employee_id: a.employee_id,
+                              date: a.date.split("T")[0],
+                              check_in: a.check_in || "",
+                              check_out: a.check_out || "",
+                              status: a.status,
+                              notes: a.notes || "",
+                            });
+                            setDialogOpen(true);
+                          }}>
+                            <Pencil className="mr-2 h-4 w-4" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={async () => {
+                            if (!confirm("Delete this attendance record?")) return;
+                            const { error } = await supabase.from("attendance").delete().eq("id", a.id);
+                            if (error) {
+                              toast({ title: "Error", description: error.message, variant: "destructive" });
+                              return;
+                            }
+                            toast({ title: "Attendance deleted" });
+                            fetchAttendance();
+                          }}>
+                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
                   </tr>
                 ))
               )}

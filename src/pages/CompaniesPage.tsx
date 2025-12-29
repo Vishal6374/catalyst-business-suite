@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Globe, Mail, MapPin } from "lucide-react";
+import { Plus, Search, Globe, Mail, MapPin, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 export default function CompaniesPage() {
   const { user } = useAuth();
@@ -17,6 +18,7 @@ export default function CompaniesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingCompany, setEditingCompany] = useState<any>(null);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -43,24 +45,61 @@ export default function CompaniesPage() {
 
   async function createCompany(e: React.FormEvent) {
     e.preventDefault();
-    const { error } = await supabase.from("companies").insert([{
-      ...formData,
-      created_by: user?.id,
-    }]);
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+    if (editingCompany) {
+      const { error } = await supabase.from("companies").update({
+        ...formData,
+      }).eq("id", editingCompany.id);
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Company updated successfully" });
     } else {
+      const { error } = await supabase.from("companies").insert([{
+        ...formData,
+        created_by: user?.id,
+      }]);
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+        return;
+      }
       toast({ title: "Company created successfully" });
-      setDialogOpen(false);
-      setFormData({ name: "", email: "", phone: "", website: "", industry: "", address: "", city: "", country: "" });
-      fetchCompanies();
     }
+    setDialogOpen(false);
+    setEditingCompany(null);
+    setFormData({ name: "", email: "", phone: "", website: "", industry: "", address: "", city: "", country: "" });
+    fetchCompanies();
   }
 
   const filteredCompanies = companies.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.industry?.toLowerCase().includes(search.toLowerCase())
   );
+
+  function openEdit(company: any) {
+    setEditingCompany(company);
+    setFormData({
+      name: company.name || "",
+      email: company.email || "",
+      phone: company.phone || "",
+      website: company.website || "",
+      industry: company.industry || "",
+      address: company.address || "",
+      city: company.city || "",
+      country: company.country || "",
+    });
+    setDialogOpen(true);
+  }
+
+  async function deleteCompany(id: string) {
+    if (!confirm("Delete this company?")) return;
+    const { error } = await supabase.from("companies").delete().eq("id", id);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+    toast({ title: "Company deleted" });
+    fetchCompanies();
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -140,6 +179,19 @@ export default function CompaniesPage() {
                       )}
                     </div>
                   </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => openEdit(company)}>
+                        <Pencil className="mr-2 h-4 w-4" /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => deleteCompany(company.id)}>
+                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </CardContent>
             </Card>

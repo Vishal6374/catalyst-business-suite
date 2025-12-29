@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Calendar } from "lucide-react";
+import { Plus, Search, Calendar, MoreHorizontal, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import type { Database } from "@/integrations/supabase/types";
 
 const statusColors: Record<string, string> = {
   pending: "bg-warning/10 text-warning",
@@ -29,8 +31,8 @@ const leaveTypeLabels: Record<string, string> = {
 export default function LeaveRequestsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<(Database["public"]["Tables"]["leave_requests"]["Row"] & { employees?: { employee_id: string; profiles?: { full_name: string | null } } })[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; employee_id: string; profiles?: { full_name: string | null } }[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -201,13 +203,30 @@ export default function LeaveRequestsPage() {
                     <td>{calculateDays(r.start_date, r.end_date)}</td>
                     <td className="text-muted-foreground max-w-[200px] truncate">{r.reason || "-"}</td>
                     <td><Badge className={statusColors[r.status]}>{r.status}</Badge></td>
-                    <td>
-                      {r.status === "pending" && (
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline" className="text-success" onClick={() => updateLeaveStatus(r.id, "approved")}>Approve</Button>
-                          <Button size="sm" variant="outline" className="text-destructive" onClick={() => updateLeaveStatus(r.id, "rejected")}>Reject</Button>
-                        </div>
-                      )}
+                    <td className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {r.status === "pending" && (
+                            <>
+                              <DropdownMenuItem onClick={() => updateLeaveStatus(r.id, "approved")}>Approve</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateLeaveStatus(r.id, "rejected")}>Reject</DropdownMenuItem>
+                            </>
+                          )}
+                          <DropdownMenuItem onClick={async () => {
+                            if (!confirm("Delete this leave request?")) return;
+                            const { error } = await supabase.from("leave_requests").delete().eq("id", r.id);
+                            if (!error) {
+                              toast({ title: "Leave request deleted" });
+                              fetchLeaveRequests();
+                            }
+                          }}>
+                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </td>
                   </tr>
                 ))

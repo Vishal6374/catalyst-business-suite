@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Users, Trash2 } from "lucide-react";
+import { Plus, Search, Users, Trash2, Pencil } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -16,6 +16,7 @@ export default function DepartmentsPage() {
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ name: "", description: "" });
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDepartments();
@@ -39,6 +40,22 @@ export default function DepartmentsPage() {
       toast({ title: "Department created successfully" });
       setDialogOpen(false);
       setFormData({ name: "", description: "" });
+      setEditingId(null);
+      fetchDepartments();
+    }
+  }
+
+  async function updateDepartment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingId) return;
+    const { error } = await supabase.from("departments").update(formData).eq("id", editingId);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Department updated successfully" });
+      setDialogOpen(false);
+      setFormData({ name: "", description: "" });
+      setEditingId(null);
       fetchDepartments();
     }
   }
@@ -64,16 +81,35 @@ export default function DepartmentsPage() {
           <h1 className="page-title">Departments</h1>
           <p className="page-description">Manage organization structure</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) {
+              setEditingId(null);
+              setFormData({ name: "", description: "" });
+            }
+          }}
+        >
           <DialogTrigger asChild>
-            <Button><Plus className="mr-2 h-4 w-4" />Add Department</Button>
+            <Button
+              onClick={() => {
+                setEditingId(null);
+                setFormData({ name: "", description: "" });
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Department
+            </Button>
           </DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>Create Department</DialogTitle></DialogHeader>
-            <form onSubmit={createDepartment} className="space-y-4">
+            <DialogHeader>
+              <DialogTitle>{editingId ? "Edit Department" : "Create Department"}</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={editingId ? updateDepartment : createDepartment} className="space-y-4">
               <div><Label>Name</Label><Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required /></div>
               <div><Label>Description</Label><Textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} /></div>
-              <Button type="submit" className="w-full">Create Department</Button>
+              <Button type="submit" className="w-full">{editingId ? "Update Department" : "Create Department"}</Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -104,9 +140,22 @@ export default function DepartmentsPage() {
                       {dept.employees?.[0]?.count || 0} employees
                     </div>
                   </div>
-                  <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteDepartment(dept.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setEditingId(dept.id);
+                        setFormData({ name: dept.name || "", description: dept.description || "" });
+                        setDialogOpen(true);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteDepartment(dept.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>

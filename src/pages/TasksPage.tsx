@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Calendar, CheckCircle2, Circle } from "lucide-react";
+import { Plus, Search, Calendar, CheckCircle2, Circle, Pencil, User, Link } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import type { Tables } from "@/integrations/supabase/types";
 
 const priorityColors: Record<string, string> = {
   low: "bg-muted text-muted-foreground",
@@ -20,23 +21,41 @@ const priorityColors: Record<string, string> = {
   urgent: "bg-destructive/10 text-destructive",
 };
 
+type Task = Tables<"tasks"> & {
+  lead_id?: string | null
+  deal_id?: string | null
+};
+type ProfileSummary = Pick<Tables<"profiles">, "id" | "full_name" | "email">;
+type LeadSummary = { id: string; title?: string | null; company_name?: string | null };
+type DealSummary = { id: string; title: string; value?: number | null };
+
 export default function TasksPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [tasks, setTasks] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
+  const [leads, setLeads] = useState<LeadSummary[]>([]);
+  const [deals, setDeals] = useState<DealSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: "",
     description: "",
     priority: "medium",
     status: "todo",
     due_date: "",
+    assigned_to: "",
+    lead_id: "",
+    deal_id: "",
   });
 
   useEffect(() => {
     fetchTasks();
+    fetchProfiles();
+    fetchLeads();
+    fetchDeals();
   }, []);
 
   async function fetchTasks() {
@@ -48,6 +67,32 @@ export default function TasksPage() {
     setLoading(false);
   }
 
+  async function fetchProfiles() {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .order("full_name");
+    if (data) setProfiles(data);
+  }
+
+  async function fetchLeads() {
+    const { data } = await supabase
+      .from("leads")
+      .select("id, title, company_name")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (data) setLeads(data);
+  }
+
+  async function fetchDeals() {
+    const { data } = await supabase
+      .from("deals")
+      .select("id, title, value")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (data) setDeals(data);
+  }
+
   async function createTask(e: React.FormEvent) {
     e.preventDefault();
     const { error } = await supabase.from("tasks").insert([{
@@ -56,6 +101,9 @@ export default function TasksPage() {
       priority: formData.priority as "low" | "medium" | "high" | "urgent",
       status: formData.status as "todo" | "in_progress" | "completed" | "cancelled",
       due_date: formData.due_date || null,
+      assigned_to: formData.assigned_to || null,
+      lead_id: formData.lead_id || null,
+      deal_id: formData.deal_id || null,
       created_by: user?.id,
     }]);
     if (error) {
@@ -63,18 +111,59 @@ export default function TasksPage() {
     } else {
       toast({ title: "Task created successfully" });
       setDialogOpen(false);
-      setFormData({ title: "", description: "", priority: "medium", status: "todo", due_date: "" });
+      setFormData({ title: "", description: "", priority: "medium", status: "todo", due_date: "", assigned_to: "", lead_id: "", deal_id: "" });
+      setEditingId(null);
       fetchTasks();
     }
   }
 
-  async function toggleTaskStatus(task: any) {
+  async function updateTask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingId) return;
+    const { error } = await supabase
+      .from("tasks")
+      .update({
+        title: formData.title,
+        description: formData.description,
+        priority: formData.priority as "low" | "medium" | "high" | "urgent",
+        status: formData.status as "todo" | "in_progress" | "completed" | "cancelled",
+        due_date: formData.due_date || null,
+        assigned_to: formData.assigned_to || null,
+        lead_id: formData.lead_id || null,
+        deal_id: formData.deal_id || null,
+      })
+      .eq("id", editingId);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Task updated successfully" });
+      setDialogOpen(false);
+      setFormData({ title: "", description: "", priority: "medium", status: "todo", due_date: "", assigned_to: "", lead_id: "", deal_id: "" });
+      setEditingId(null);
+      fetchTasks();
+    }
+  }
+
+  async function toggleTaskStatus(task: Task) {
     const newStatus = task.status === "completed" ? "todo" : "completed";
     const { error } = await supabase
       .from("tasks")
       .update({ status: newStatus, completed_at: newStatus === "completed" ? new Date().toISOString() : null })
       .eq("id", task.id);
     if (!error) fetchTasks();
+  }
+
+  async function assignTask(taskId: string, userId: string) {
+    const { error } = await supabase
+      .from("tasks")
+      .update({ assigned_to: userId || null })
+      .eq("id", taskId);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Task reassigned" });
+      fetchTasks();
+    }
   }
 
   const filteredTasks = tasks.filter((t) => t.title.toLowerCase().includes(search.toLowerCase()));
@@ -88,13 +177,29 @@ export default function TasksPage() {
           <h1 className="page-title">Tasks</h1>
           <p className="page-description">Manage your work items</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) {
+              setEditingId(null);
+              setFormData({ title: "", description: "", priority: "medium", status: "todo", due_date: "", assigned_to: "", lead_id: "", deal_id: "" });
+            }
+          }}
+        >
           <DialogTrigger asChild>
-            <Button><Plus className="mr-2 h-4 w-4" />New Task</Button>
+            <Button
+              onClick={() => {
+                setEditingId(null);
+                setFormData({ title: "", description: "", priority: "medium", status: "todo", due_date: "", assigned_to: "", lead_id: "", deal_id: "" });
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />New Task
+            </Button>
           </DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>Create New Task</DialogTitle></DialogHeader>
-            <form onSubmit={createTask} className="space-y-4">
+            <DialogHeader><DialogTitle>{editingId ? "Edit Task" : "Create New Task"}</DialogTitle></DialogHeader>
+            <form onSubmit={editingId ? updateTask : createTask} className="space-y-4">
               <div><Label>Title</Label><Input value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} required /></div>
               <div><Label>Description</Label><Textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} /></div>
               <div className="grid grid-cols-2 gap-4">
@@ -112,7 +217,58 @@ export default function TasksPage() {
                 </div>
                 <div><Label>Due Date</Label><Input type="date" value={formData.due_date} onChange={(e) => setFormData({ ...formData, due_date: e.target.value })} /></div>
               </div>
-              <Button type="submit" className="w-full">Create Task</Button>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Status</Label>
+                  <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todo">To Do</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Assign To</Label>
+                  <Select value={formData.assigned_to} onValueChange={(v) => setFormData({ ...formData, assigned_to: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select user" /></SelectTrigger>
+                    <SelectContent>
+                      {profiles.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.full_name || p.email}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Link Lead</Label>
+                  <Select value={formData.lead_id} onValueChange={(v) => setFormData({ ...formData, lead_id: v === "none" ? "" : v })}>
+                    <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {leads.map((l) => (
+                        <SelectItem key={l.id} value={l.id}>{l.company_name || l.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Link Deal</Label>
+                  <Select value={formData.deal_id} onValueChange={(v) => setFormData({ ...formData, deal_id: v === "none" ? "" : v })}>
+                    <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {deals.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>{d.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <Button type="submit" className="w-full">{editingId ? "Update Task" : "Create Task"}</Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -135,29 +291,75 @@ export default function TasksPage() {
             </h2>
             {todoTasks.length === 0 ? (
               <p className="text-muted-foreground text-sm">No pending tasks</p>
-            ) : (
-              todoTasks.map((task) => (
-                <Card key={task.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <Checkbox checked={task.status === "completed"} onCheckedChange={() => toggleTaskStatus(task)} className="mt-1" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-medium truncate">{task.title}</h3>
-                          <Badge className={priorityColors[task.priority]}>{task.priority}</Badge>
-                        </div>
-                        {task.description && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{task.description}</p>}
-                        {task.due_date && (
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-2">
-                            <Calendar className="h-3 w-3" />{new Date(task.due_date).toLocaleDateString()}
+              ) : (
+                todoTasks.map((task) => (
+                  <Card key={task.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        <Checkbox checked={task.status === "completed"} onCheckedChange={() => toggleTaskStatus(task)} className="mt-1" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-medium truncate">{task.title}</h3>
+                            <Badge className={priorityColors[task.priority]}>{task.priority}</Badge>
                           </div>
-                        )}
+                          {task.description && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{task.description}</p>}
+                          {task.due_date && (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-2">
+                              <Calendar className="h-3 w-3" />{new Date(task.due_date).toLocaleDateString()}
+                            </div>
+                          )}
+                          {task.assigned_to && (
+                            <p className="text-xs text-muted-foreground mt-1">Assigned</p>
+                          )}
+                          {(task.lead_id || task.deal_id) && (
+                            <div className="flex items-center gap-2 text-xs mt-2">
+                              {task.lead_id && (
+                                <span className="inline-flex items-center gap-1 text-muted-foreground"><Link className="h-3 w-3" />Lead</span>
+                              )}
+                              {task.deal_id && (
+                                <span className="inline-flex items-center gap-1 text-muted-foreground"><Link className="h-3 w-3" />Deal</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setEditingId(task.id);
+                              setFormData({
+                                title: task.title || "",
+                                description: task.description || "",
+                                priority: task.priority || "medium",
+                                status: task.status || "todo",
+                                due_date: task.due_date?.split("T")[0] || "",
+                                assigned_to: task.assigned_to || "",
+                                lead_id: task.lead_id || "",
+                                deal_id: task.deal_id || "",
+                              });
+                              setDialogOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Select onValueChange={(v) => assignTask(task.id, v === "none" ? "" : v)}>
+                            <SelectTrigger className="w-[44px] justify-center">
+                              <User className="h-4 w-4" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Unassigned</SelectItem>
+                              {profiles.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>{p.full_name || p.email}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
+                    </CardContent>
+                  </Card>
+                ))
+              )}
           </div>
 
           <div className="space-y-4">

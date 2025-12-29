@@ -3,12 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, DollarSign } from "lucide-react";
+import { Plus, Search, DollarSign, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import type { Database } from "@/integrations/supabase/types";
 
 const statusColors: Record<string, string> = {
   pending: "bg-warning/10 text-warning",
@@ -20,11 +22,12 @@ const months = ["January", "February", "March", "April", "May", "June", "July", 
 
 export default function PayrollPage() {
   const { toast } = useToast();
-  const [payroll, setPayroll] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
+  const [payroll, setPayroll] = useState<(Database["public"]["Tables"]["payroll"]["Row"] & { employees?: { employee_id: string; salary: number | null; profiles?: { full_name: string | null } } })[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; employee_id: string; salary: number | null; profiles?: { full_name: string | null } }[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Database["public"]["Tables"]["payroll"]["Row"] | null>(null);
   const [formData, setFormData] = useState({
     employee_id: "",
     month: (new Date().getMonth() + 1).toString(),
@@ -67,24 +70,43 @@ export default function PayrollPage() {
     const deductions = parseFloat(formData.deductions) || 0;
     const netSalary = basic + allowances - deductions;
 
-    const { error } = await supabase.from("payroll").insert([{
-      employee_id: formData.employee_id,
-      month: parseInt(formData.month),
-      year: parseInt(formData.year),
-      basic_salary: basic,
-      allowances: allowances,
-      deductions: deductions,
-      net_salary: netSalary,
-      status: formData.status as "pending" | "processed" | "paid",
-    }]);
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+    if (editing) {
+      const { error } = await supabase.from("payroll").update({
+        employee_id: formData.employee_id,
+        month: parseInt(formData.month),
+        year: parseInt(formData.year),
+        basic_salary: basic,
+        allowances,
+        deductions,
+        net_salary: netSalary,
+        status: formData.status as "pending" | "processed" | "paid",
+      }).eq("id", editing.id);
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Payroll record updated" });
     } else {
+      const { error } = await supabase.from("payroll").insert([{
+        employee_id: formData.employee_id,
+        month: parseInt(formData.month),
+        year: parseInt(formData.year),
+        basic_salary: basic,
+        allowances,
+        deductions,
+        net_salary: netSalary,
+        status: formData.status as "pending" | "processed" | "paid",
+      }]);
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+        return;
+      }
       toast({ title: "Payroll record created successfully" });
-      setDialogOpen(false);
-      setFormData({ employee_id: "", month: (new Date().getMonth() + 1).toString(), year: new Date().getFullYear().toString(), basic_salary: "", allowances: "0", deductions: "0", status: "pending" });
-      fetchPayroll();
     }
+    setDialogOpen(false);
+    setEditing(null);
+    setFormData({ employee_id: "", month: (new Date().getMonth() + 1).toString(), year: new Date().getFullYear().toString(), basic_salary: "", allowances: "0", deductions: "0", status: "pending" });
+    fetchPayroll();
   }
 
   async function updatePayrollStatus(id: string, status: "pending" | "processed" | "paid") {
@@ -204,13 +226,47 @@ export default function PayrollPage() {
                     <td className="text-destructive">${Number(p.deductions || 0).toLocaleString()}</td>
                     <td className="font-semibold">${Number(p.net_salary || 0).toLocaleString()}</td>
                     <td><Badge className={statusColors[p.status]}>{p.status}</Badge></td>
-                    <td>
-                      {p.status === "pending" && (
-                        <Button size="sm" variant="outline" onClick={() => updatePayrollStatus(p.id, "processed")}>Process</Button>
-                      )}
-                      {p.status === "processed" && (
-                        <Button size="sm" variant="outline" onClick={() => updatePayrollStatus(p.id, "paid")}>Mark Paid</Button>
-                      )}
+                    <td className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {p.status === "pending" && (
+                            <DropdownMenuItem onClick={() => updatePayrollStatus(p.id, "processed")}>Process</DropdownMenuItem>
+                          )}
+                          {p.status === "processed" && (
+                            <DropdownMenuItem onClick={() => updatePayrollStatus(p.id, "paid")}>Mark Paid</DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={() => {
+                            setEditing(p);
+                            setFormData({
+                              employee_id: p.employee_id,
+                              month: p.month.toString(),
+                              year: p.year.toString(),
+                              basic_salary: (p.basic_salary || 0).toString(),
+                              allowances: (p.allowances || 0).toString(),
+                              deductions: (p.deductions || 0).toString(),
+                              status: p.status,
+                            });
+                            setDialogOpen(true);
+                          }}>
+                            <Pencil className="mr-2 h-4 w-4" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={async () => {
+                            if (!confirm("Delete this payroll record?")) return;
+                            const { error } = await supabase.from("payroll").delete().eq("id", p.id);
+                            if (error) {
+                              toast({ title: "Error", description: error.message, variant: "destructive" });
+                              return;
+                            }
+                            toast({ title: "Payroll deleted" });
+                            fetchPayroll();
+                          }}>
+                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </td>
                   </tr>
                 ))

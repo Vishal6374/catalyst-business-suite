@@ -397,11 +397,16 @@ export type Database = {
         Row: {
           assigned_to: string | null
           company_id: string | null
+          company_name: string
           contact_id: string | null
+          contact_name: string
           created_at: string
           created_by: string | null
           description: string | null
+          email: string | null
           id: string
+          notes: string | null
+          phone: string | null
           source: string | null
           status: Database["public"]["Enums"]["lead_status"]
           title: string
@@ -411,11 +416,16 @@ export type Database = {
         Insert: {
           assigned_to?: string | null
           company_id?: string | null
+          company_name?: string
           contact_id?: string | null
+          contact_name?: string
           created_at?: string
           created_by?: string | null
           description?: string | null
+          email?: string | null
           id?: string
+          notes?: string | null
+          phone?: string | null
           source?: string | null
           status?: Database["public"]["Enums"]["lead_status"]
           title: string
@@ -425,11 +435,16 @@ export type Database = {
         Update: {
           assigned_to?: string | null
           company_id?: string | null
+          company_name?: string
           contact_id?: string | null
+          contact_name?: string
           created_at?: string
           created_by?: string | null
           description?: string | null
+          email?: string | null
           id?: string
+          notes?: string | null
+          phone?: string | null
           source?: string | null
           status?: Database["public"]["Enums"]["lead_status"]
           title?: string
